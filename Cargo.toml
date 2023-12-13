@@ -15,4 +15,4 @@ path = "src/main.rs"
 
 [dependencies]
 vulkano = "0.34.1"
-winit = "0.29.4"
+winit = "0.28"

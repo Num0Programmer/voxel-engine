@@ -1,62 +1,39 @@
+use winit::{event_loop::EventLoop, window::WindowBuilder};
+use std::sync::Arc;
 use vulkano::{
-    instance::{Instance, InstanceCreateInfo, InstanceExtensions},
-    device::{Device, DeviceCreateInfo, DeviceExtensions, Features, QueueCreateInfo},
+    instance::{Instance, InstanceCreateInfo, InstanceCreateFlags},
+    swapchain::Surface,
     VulkanLibrary
 };
 
 
 pub fn main()
 {
+    // define loop for winit events
+    let event_loop = EventLoop::new();
+    // setup vulkan instance and choose a physical device
     let library = VulkanLibrary::new()
-        .unwrap_or_else(|err|
-            panic!("Could not load Vulkan library: {:?}", err)
-        );
-    let extensions = InstanceExtensions
-    {
-        khr_surface: true,
-        ext_metal_surface: true,
-        ..InstanceExtensions::empty()
-    };
+        .unwrap_or_else(|err| panic!("Could not load Vulkan Library: {:?}", err));
+    let required_extensions = Surface::required_extensions(&event_loop);
     let instance = Instance::new(
-        library.clone(),  // expensive - will not be included after setting up vulkan stage
+        library,
         InstanceCreateInfo
         {
-            enabled_extensions: extensions,
+            flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
+            enabled_extensions: required_extensions,
             ..Default::default()
-        }
-    ).unwrap_or_else(|err| panic!("Could not create Vulkan Instance: {:?}", err));
+        })
+        .unwrap_or_else(|err| panic!("Could not create instance: {:?}", err));
     let physical_device = instance
         .enumerate_physical_devices()
-        .unwrap_or_else(|err| panic!("Could not get physical device: {:?}", err))
+        .unwrap_or_else(|err| panic!("Could not enumerate physical devices: {:?}", err))
         .next().expect("No physical device!");
 
+    // setup window and surface onto which to draw
+    let window = Arc::new(WindowBuilder::new()
+        .build(&event_loop)
+        .unwrap_or_else(|err| panic!("Could not build window: {:?}", err)));
+    let surface = Surface::from_window(instance.clone(), window.clone()).unwrap();
 
-    // choose first physical device found
-    let device = {
-        let dev_features = Features::empty();
-        let dev_extensions = DeviceExtensions::empty();
-
-        match Device::new(
-            physical_device,
-            DeviceCreateInfo
-            {
-                queue_create_infos: vec![QueueCreateInfo
-                {
-                    queue_family_index: 0,
-                    ..Default::default()
-                }],
-                enabled_extensions: dev_extensions,
-                enabled_features: dev_features,
-                ..Default::default()
-            },
-        ) {
-            Ok(d) => d,
-            Err(err) => panic!("Couldn't build device: {:?}", err)
-        }
-    };
-
-    // show user the extensions
-    println!("Extensions: {:?}\n", extensions);
-    // show user the created device
-    println!("Logical device: {:?}", device.0);
+    println!("Created surface: {:?}", surface);
 }
