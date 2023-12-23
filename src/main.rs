@@ -7,8 +7,18 @@ use vulkano::{
     instance::{Instance, InstanceCreateInfo, InstanceCreateFlags},
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{
-        graphics::vertex_input::{Vertex, VertexDefinition},
+        graphics::{
+            color_blend::{ColorBlendState, ColorBlendAttachmentState},
+            input_assembly::InputAssemblyState,
+            multisample::MultisampleState,
+            rasterization::RasterizationState,
+            viewport::{Viewport, ViewportState},
+            vertex_input::{Vertex, VertexDefinition},
+            GraphicsPipelineCreateInfo,
+        },
         layout::PipelineDescriptorSetLayoutCreateInfo,
+        DynamicState,
+        GraphicsPipeline,
         PipelineLayout,
         PipelineShaderStageCreateInfo,
     },
@@ -224,5 +234,33 @@ pub fn main()
         ).unwrap();
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+
+        GraphicsPipeline::new(
+            device.clone(),
+            None,
+            GraphicsPipelineCreateInfo
+            {
+                stages: stages.into_iter().collect(),
+                vertex_input_state: Some(vertex_input_state),
+                input_assembly_state: Some(InputAssemblyState::default()),
+                viewport_state: Some(ViewportState::default()),
+                rasterization_state: Some(RasterizationState::default()),
+                multisample_state: Some(MultisampleState::default()),
+                color_blend_state: Some(ColorBlendState::with_attachment_states(
+                    subpass.num_color_attachments(),
+                    ColorBlendAttachmentState::default()
+                )),
+                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
+                subpass: Some(subpass.into()),
+                ..GraphicsPipelineCreateInfo::layout(layout)
+            }
+        ).unwrap()
+    };
+
+    let mut viewport = Viewport
+    {
+        offset: [0.0, 0.0],
+        extent: [0.0, 0.0],
+        depth_range: 0.0..=1.0
     };
 }
