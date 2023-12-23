@@ -1,9 +1,19 @@
 use winit::{event_loop::EventLoop, window::WindowBuilder};
 use std::sync::Arc;
 use vulkano::{
+    buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage},
     device::{Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo},
+    image::ImageUsage,
     instance::{Instance, InstanceCreateInfo, InstanceCreateFlags},
-    swapchain::Surface,
+    memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
+    pipeline::{
+        graphics::vertex_input::{Vertex, VertexDefinition},
+        layout::PipelineDescriptorSetLayoutCreateInfo,
+        PipelineLayout,
+        PipelineShaderStageCreateInfo,
+    },
+    render_pass::Subpass,
+    swapchain::{Surface, Swapchain, SwapchainCreateInfo},
     VulkanLibrary
 };
 
@@ -64,4 +74,155 @@ pub fn main()
 
     println!("Logical device: {:?}\n", device);
     println!("Queue family: {:?}\n", queue);
+
+    let (mut swapchain, images) = {
+        let surface_capabilities = device
+            .physical_device()
+            .surface_capabilities(&surface, Default::default())
+            .unwrap();
+        let image_format = device
+            .physical_device()
+            .surface_formats(&surface, Default::default())
+            .unwrap()[0]
+            .0;
+
+        Swapchain::new(
+            device.clone(),
+            surface,
+            SwapchainCreateInfo
+            {
+                min_image_count: surface_capabilities.min_image_count.max(2),
+                image_format,
+                image_extent: window.inner_size().into(),
+                image_usage: ImageUsage::COLOR_ATTACHMENT,
+                composite_alpha: surface_capabilities
+                    .supported_composite_alpha
+                    .into_iter()
+                    .next()
+                    .unwrap(),
+                ..Default::default()
+            },
+        ).unwrap()
+    };
+
+    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+    
+    
+    #[derive(BufferContents, Vertex)]
+    #[repr(C)]
+    struct Vertex
+    {
+        #[format(R32G32B32_SFLOAT)]
+        position: [f32; 2]
+    }
+    let vertices = [
+        Vertex
+        {
+            position: [-0.5, -0.25]
+        },
+        Vertex
+        {
+            position: [0.0, 0.5]
+        },
+        Vertex
+        {
+            position: [0.25, -0.1]
+        }
+    ];
+    let vertex_buffer = Buffer::from_iter(
+        memory_allocator,
+        BufferCreateInfo
+        {
+            usage: BufferUsage::VERTEX_BUFFER,
+            ..Default::default()
+        },
+        AllocationCreateInfo
+        {
+            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+            ..Default::default()
+        },
+        vertices
+    ).unwrap();
+
+    mod vs
+    {
+        vulkano_shaders::shader!
+        {
+            ty: "vertex",
+            src: r"
+                #version 450
+
+                layout (location = 0) in vec2 position;
+
+                void main()
+                {
+                    gl_Position = vec4(position, 0.0, 1.0);
+                }
+            "
+        }
+    }
+    mod fs
+    {
+        vulkano_shaders::shader!
+        {
+            ty: "fragment",
+            src: r"
+                #version 450
+
+                layout(location = 0) out vec4 f_color;
+
+                void main()
+                {
+                    f_color = vec4(1.0, 0.0, 0.0, 1.0);
+                }
+            "
+        }
+    }
+
+    let render_pass = vulkano::single_pass_renderpass!(
+        device.clone(),
+        attachments:
+        {
+            color:
+            {
+                format: swapchain.image_format(),
+                samples: 1,
+                load_op: Clear,
+                store_op: Store
+            }
+        },
+        pass: {
+            color: [color],
+            depth_stencil: {}
+        }
+    ).unwrap();
+
+    let pipeline = {
+        let vs = vs::load(device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let fs = fs::load(device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let vertex_input_state = Vertex::per_vertex()
+            .definition(&vs.info().input_interface)
+            .unwrap();
+
+        let stages = [
+            PipelineShaderStageCreateInfo::new(vs),
+            PipelineShaderStageCreateInfo::new(fs)
+        ];
+
+        let layout = PipelineLayout::new(
+            device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
+                .into_pipeline_layout_create_info(device.clone())
+                .unwrap()
+        ).unwrap();
+
+        let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
+    };
 }
