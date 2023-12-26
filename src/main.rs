@@ -158,7 +158,7 @@ pub fn main()
     #[repr(C)]
     struct Vertex
     {
-        #[format(R32G32B32_SFLOAT)]
+        #[format(R32G32_SFLOAT)]
         position: [f32; 2]
     }
     let vertices = [
