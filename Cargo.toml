@@ -9,9 +9,9 @@ edition = "2021"
 name = "voxel_engine"
 path = "src/lib.rs"
 
-[[bin]]
-name = "vx"
-path = "src/main.rs"
+[[example]]
+name = "triangle"
+path = "src/triangle.rs"
 
 [dependencies]
 vulkano = "0.34.1"
