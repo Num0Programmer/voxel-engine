@@ -3,7 +3,7 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder
 };
-use std::sync::Arc;
+use std::{time::SystemTime, sync::Arc};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage},
     command_buffer::{
@@ -33,6 +33,7 @@ use vulkano::{
         layout::PipelineDescriptorSetLayoutCreateInfo,
         DynamicState,
         GraphicsPipeline,
+        Pipeline,
         PipelineLayout,
         PipelineShaderStageCreateInfo
     },
@@ -191,6 +192,30 @@ pub fn main()
         vertices
     ).unwrap();
 
+    mod cs
+    {
+        vulkano_shaders::shader!
+        {
+            ty: "compute",
+            src: r"
+                #version 450
+
+                layout (binding = 0) buffer PositionBuffer
+                {
+                    vec2 positions[];
+                };
+
+                layout (push_constant) uniform Push
+                {
+                    float dt;
+                };
+
+                void main()
+                {
+                }
+            "
+        }
+    }
     mod vs
     {
         vulkano_shaders::shader!
@@ -253,7 +278,8 @@ pub fn main()
         }
     ).unwrap();
 
-    let pipeline = {
+    let compute_pipeline = {};
+    let graphics_pipeline = {
         let vs = vs::load(device.clone())
             .unwrap()
             .entry_point("main")
@@ -323,6 +349,8 @@ pub fn main()
 
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
+    let start_time = SystemTime::now();
+    let mut last_frame_time = start_time;
     event_loop.run(move |event, _, control_flow|
     {
         match event
@@ -351,6 +379,22 @@ pub fn main()
                 {
                     return;
                 }
+
+                let now = SystemTime::now();
+                let time = now
+                    .duration_since(start_time)
+                    .unwrap()
+                    .as_secs_f32();
+                let dt = now
+                    .duration_since(last_frame_time)
+                    .unwrap()
+                    .as_secs_f32();
+                last_frame_time = now;
+
+                let push_constants = cs::Push
+                {
+                    dt
+                };
 
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
 
@@ -419,7 +463,7 @@ pub fn main()
                     .unwrap()
                     .set_viewport(0, [viewport.clone()].into_iter().collect())
                     .unwrap()
-                    .bind_pipeline_graphics(pipeline.clone())
+                    .bind_pipeline_graphics(graphics_pipeline.clone())
                     .unwrap()
                     .bind_vertex_buffers(0, vertex_buffer.clone())
                     .unwrap()
