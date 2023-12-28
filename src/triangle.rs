@@ -33,7 +33,6 @@ use vulkano::{
         layout::PipelineDescriptorSetLayoutCreateInfo,
         DynamicState,
         GraphicsPipeline,
-        Pipeline,
         PipelineLayout,
         PipelineShaderStageCreateInfo
     },
@@ -155,14 +154,14 @@ pub fn main()
     );
     
     
-    #[derive(BufferContents, Vertex)]
+    #[derive(BufferContents, Clone, Vertex)]
     #[repr(C)]
     struct Vertex
     {
         #[format(R32G32_SFLOAT)]
         position: [f32; 2]
     }
-    let vertices = [
+    let mut verticies = [
         Vertex
         {
             position: [0.0, -0.5]
@@ -176,46 +175,7 @@ pub fn main()
             position: [-0.5, 0.5]
         }
     ];
-    let vertex_buffer = Buffer::from_iter(
-        memory_allocator,
-        BufferCreateInfo
-        {
-            usage: BufferUsage::VERTEX_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo
-        {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        vertices
-    ).unwrap();
 
-    mod cs
-    {
-        vulkano_shaders::shader!
-        {
-            ty: "compute",
-            src: r"
-                #version 450
-
-                layout (binding = 0) buffer PositionBuffer
-                {
-                    vec2 positions[];
-                };
-
-                layout (push_constant) uniform Push
-                {
-                    float dt;
-                };
-
-                void main()
-                {
-                }
-            "
-        }
-    }
     mod vs
     {
         vulkano_shaders::shader!
@@ -278,7 +238,6 @@ pub fn main()
         }
     ).unwrap();
 
-    let compute_pipeline = {};
     let graphics_pipeline = {
         let vs = vs::load(device.clone())
             .unwrap()
@@ -380,21 +339,16 @@ pub fn main()
                     return;
                 }
 
-                let now = SystemTime::now();
-                let time = now
+                let _now = SystemTime::now();
+                let _time = _now
                     .duration_since(start_time)
                     .unwrap()
                     .as_secs_f32();
-                let dt = now
+                let _dt = _now
                     .duration_since(last_frame_time)
                     .unwrap()
                     .as_secs_f32();
-                last_frame_time = now;
-
-                let push_constants = cs::Push
-                {
-                    dt
-                };
+                last_frame_time = _now;
 
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
 
@@ -418,6 +372,23 @@ pub fn main()
 
                     recreate_swapchain = false;
                 }
+            
+                let vertex_buffer = Buffer::from_iter(
+                    memory_allocator.clone(),
+                    BufferCreateInfo
+                    {
+                        usage: BufferUsage::VERTEX_BUFFER,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo
+                    {
+                        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    verticies.clone()
+                )
+                .unwrap();
 
                 let (image_index, suboptimal, acquire_future) =
                     match acquire_next_image(swapchain.clone(), None)
@@ -441,7 +412,8 @@ pub fn main()
                     &command_buffer_allocator,
                     queue.queue_family_index(),
                     CommandBufferUsage::OneTimeSubmit
-                ).unwrap();
+                )
+                .unwrap();
 
                 builder
                     .begin_render_pass(
@@ -487,6 +459,12 @@ pub fn main()
                         )
                     )
                     .then_signal_fence_and_flush();
+
+                verticies.iter_mut().for_each(|vertex|
+                {
+                    vertex.position[0] += 2.0 * _dt;
+                    vertex.position[1] += 2.0 * _dt;
+                });
 
                 match future.map_err(Validated::unwrap)
                 {
