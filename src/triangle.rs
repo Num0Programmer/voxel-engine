@@ -462,8 +462,7 @@ pub fn main()
 
                 verticies.iter_mut().for_each(|vertex|
                 {
-                    vertex.position[0] += 2.0 * _dt;
-                    vertex.position[1] += 2.0 * _dt;
+                    vertex.position[1] -= (_time % 255.0).sin() * _dt / 10.0;
                 });
 
                 match future.map_err(Validated::unwrap)
