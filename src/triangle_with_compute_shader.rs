@@ -10,9 +10,16 @@ use vulkano::{
         allocator::StandardCommandBufferAllocator,
         auto::AutoCommandBufferBuilder,
         CommandBufferUsage,
+        CopyBufferInfo,
+        PrimaryCommandBufferAbstract,
         RenderPassBeginInfo,
         SubpassBeginInfo,
         SubpassContents
+    },
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator,
+        PersistentDescriptorSet,
+        WriteDescriptorSet
     },
     device::{Device, DeviceCreateInfo, DeviceExtensions, QueueCreateInfo},
     image::{view::ImageView, Image, ImageUsage},
@@ -21,6 +28,7 @@ use vulkano::{
         AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator
     },
     pipeline::{
+        compute::{ComputePipeline, ComputePipelineCreateInfo},
         graphics::{
             color_blend::{ColorBlendState, ColorBlendAttachmentState},
             input_assembly::InputAssemblyState,
@@ -33,6 +41,8 @@ use vulkano::{
         layout::PipelineDescriptorSetLayoutCreateInfo,
         DynamicState,
         GraphicsPipeline,
+        Pipeline,
+        PipelineBindPoint,
         PipelineLayout,
         PipelineShaderStageCreateInfo
     },
@@ -152,33 +162,131 @@ pub fn main()
         .unwrap()
     };
 
-    let memory_allocator = Arc::new(
-        StandardMemoryAllocator::new_default(device.clone())
-    );
-    
-    
-    #[derive(BufferContents, Clone, Vertex)]
+    let memory_allocator =
+        Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+    let descriptor_set_allocator =
+        StandardDescriptorSetAllocator::new(device.clone(), Default::default());
+    let command_buffer_allocator =
+        StandardCommandBufferAllocator::new(device.clone(), Default::default());
+        
+    #[derive(BufferContents, Vertex)]
     #[repr(C)]
     struct Vertex
     {
         #[format(R32G32_SFLOAT)]
         position: [f32; 2]
     }
-    let mut verticies = [
-        Vertex
-        {
-            position: [0.0, -0.5]
-        },
-        Vertex
-        {
-            position: [0.5, 0.5]
-        },
-        Vertex
-        {
-            position: [-0.5, 0.5]
-        }
-    ];
+    let vertex_buffer = {
+        let verticies = [
+            Vertex
+            {
+                position: [0.0, -0.5]
+            },
+            Vertex
+            {
+                position: [0.5, 0.5]
+            },
+            Vertex
+            {
+                position: [-0.5, 0.5]
+            }
+        ];
 
+        let temp_accessible_buffer = Buffer::from_iter(
+            memory_allocator.clone(),
+            BufferCreateInfo
+            {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo
+            {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            verticies
+        )
+        .unwrap();
+
+        let device_local_buffer = Buffer::new_slice::<Vertex>(
+            memory_allocator,
+            BufferCreateInfo
+            {
+                usage: BufferUsage::STORAGE_BUFFER
+                    | BufferUsage::TRANSFER_DST
+                    | BufferUsage::VERTEX_BUFFER,
+                ..Default::default()
+            },
+            AllocationCreateInfo
+            {
+                memory_type_filter: MemoryTypeFilter::PREFER_DEVICE,
+                ..Default::default()
+            },
+            // 3 for the number of verticies in a triangle
+            3 as vulkano::DeviceSize
+        )
+        .unwrap();
+
+        let mut cbb = AutoCommandBufferBuilder::primary(
+            &command_buffer_allocator,
+            queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit
+        )
+        .unwrap();
+        cbb.copy_buffer(CopyBufferInfo::buffers(
+            temp_accessible_buffer,
+            device_local_buffer.clone()
+        ))
+        .unwrap();
+        let cb = cbb.build().unwrap();
+        // execute copy, wait until copy is finished before proceeding
+        cb.execute(queue.clone())
+            .unwrap()
+            .then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .unwrap();
+
+        device_local_buffer
+    };
+
+    mod cs
+    {
+        vulkano_shaders::shader!
+        {
+            ty: "compute",
+            src: r"
+                #version 450
+
+                layout (local_size_x = 128, local_size_y = 1, local_size_z = 1)
+                    in;
+
+                struct VertexLocal
+                {
+                    vec2 position;
+                };
+
+                layout (binding = 0) buffer VertexBuffer
+                {
+                    VertexLocal verticies[];
+                };
+
+                layout (push_constant) uniform PushConstants
+                {
+                    float coefficient;
+                    float dt;
+                };
+
+                void main()
+                {
+                    const uint vertex_idx = gl_GlobalInvocationID.x;
+
+                    verticies[vertex_idx].position.y += 10.0;
+                }
+            "
+        }
+    }
     mod vs
     {
         vulkano_shaders::shader!
@@ -194,6 +302,7 @@ pub fn main()
                 );
 
                 layout (location = 0) in vec2 position;
+
                 layout (location = 0) out vec3 f_color;
 
                 void main()
@@ -213,6 +322,7 @@ pub fn main()
                 #version 450
 
                 layout (location = 0) in vec3 f_color;
+
                 layout (location = 0) out vec4 o_color;
 
                 void main()
@@ -242,6 +352,26 @@ pub fn main()
     )
     .unwrap();
 
+    let compute_pipeline = {
+        let cs = cs::load(device.clone())
+            .unwrap()
+            .entry_point("main")
+            .unwrap();
+        let stage = PipelineShaderStageCreateInfo::new(cs);
+        let layout = PipelineLayout::new(
+            device.clone(),
+            PipelineDescriptorSetLayoutCreateInfo::from_stages([&stage])
+                .into_pipeline_layout_create_info(device.clone())
+                .expect("Failed to create descriptor set layout!")
+        )
+        .expect("Failed to create layout for compute pipeline!");
+        ComputePipeline::new(
+            device.clone(),
+            None,
+            ComputePipelineCreateInfo::stage_layout(stage, layout)
+        )
+        .expect("Failed to create compute pipeline!")
+    };
     let graphics_pipeline = {
         let vs = vs::load(device.clone())
             .unwrap()
@@ -294,6 +424,21 @@ pub fn main()
         )
         .unwrap()
     };
+
+    let descriptor_set = PersistentDescriptorSet::new(
+        &descriptor_set_allocator,
+        compute_pipeline
+            .layout()
+            .set_layouts()
+            .get(0)
+            .unwrap()
+            .clone(),
+        [
+            WriteDescriptorSet::buffer(0, vertex_buffer.clone())
+        ],
+        []
+    )
+    .unwrap();
 
     let mut viewport = Viewport
     {
@@ -379,23 +524,6 @@ pub fn main()
                     recreate_swapchain = false;
                 }
             
-                let vertex_buffer = Buffer::from_iter(
-                    memory_allocator.clone(),
-                    BufferCreateInfo
-                    {
-                        usage: BufferUsage::VERTEX_BUFFER,
-                        ..Default::default()
-                    },
-                    AllocationCreateInfo
-                    {
-                        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-                        ..Default::default()
-                    },
-                    verticies.clone()
-                )
-                .unwrap();
-
                 let (image_index, suboptimal, acquire_future) =
                     match acquire_next_image(swapchain.clone(), None)
                         .map_err(Validated::unwrap)
@@ -414,6 +542,11 @@ pub fn main()
                     recreate_swapchain = true;
                 }
 
+                let push_constants = cs::PushConstants
+                {
+                    coefficient: _time,
+                    dt: _dt
+                };
                 let mut builder = AutoCommandBufferBuilder::primary(
                     &command_buffer_allocator,
                     queue.queue_family_index(),
@@ -422,6 +555,23 @@ pub fn main()
                 .unwrap();
 
                 builder
+                    .push_constants(
+                        compute_pipeline.layout().clone(),
+                        0,
+                        push_constants
+                    )
+                    .unwrap()
+                    .bind_pipeline_compute(compute_pipeline.clone())
+                    .unwrap()
+                    .bind_descriptor_sets(
+                        PipelineBindPoint::Compute,
+                        compute_pipeline.layout().clone(),
+                        0,
+                        descriptor_set.clone()
+                    )
+                    .unwrap()
+                    .dispatch([3 as u32 / 128, 1, 1])
+                    .unwrap()
                     .begin_render_pass(
                         RenderPassBeginInfo
                         {
@@ -445,7 +595,7 @@ pub fn main()
                     .unwrap()
                     .bind_vertex_buffers(0, vertex_buffer.clone())
                     .unwrap()
-                    .draw(vertex_buffer.len() as u32, 1, 0, 0)
+                    .draw(3 as u32, 1, 0, 0)
                     .unwrap()
                     .end_render_pass(Default::default())
                     .unwrap();
@@ -465,11 +615,6 @@ pub fn main()
                         )
                     )
                     .then_signal_fence_and_flush();
-
-                verticies.iter_mut().for_each(|vertex|
-                {
-                    vertex.position[1] -= (_time % 255.0).sin() * _dt / 10.0;
-                });
 
                 match future.map_err(Validated::unwrap)
                 {

@@ -12,6 +12,9 @@ path = "src/lib.rs"
 [[example]]
 name = "triangle"
 path = "src/triangle.rs"
+[[example]]
+name = "compute"
+path = "src/triangle_with_compute_shader.rs"
 
 [dependencies]
 vulkano = "0.34.1"
