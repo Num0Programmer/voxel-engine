@@ -11,10 +11,10 @@ path = "src/lib.rs"
 
 [[example]]
 name = "tri"
-path = "src/triangle_with_direct_vertex_manipulation.rs"
+path = "example/triangle_with_cpu.rs"
 [[example]]
 name = "tri_cs"
-path = "src/triangle_with_compute_shader.rs"
+path = "example/triangle_with_graphics_hardware.rs"
 
 [dependencies]
 vulkano = "0.34.1"
