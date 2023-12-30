@@ -63,8 +63,6 @@ use vulkano::{
 
 
 const VERTEX_COUNT: usize = 3;
-const WINDOW_WIDTH: u32 = 800;
-const WINDOW_HEIGHT: u32 = 600;
 
 
 pub fn main()
@@ -74,9 +72,6 @@ pub fn main()
         WindowBuilder::new()
             .with_resizable(false)
             .with_title("Triangle")
-            .with_inner_size(
-                winit::dpi::PhysicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT)
-            )
             .build(&event_loop)
             .unwrap()
     );
@@ -155,7 +150,7 @@ pub fn main()
             {
                 min_image_count: surface_capabilities.min_image_count.max(2),
                 image_format,
-                image_extent: [WINDOW_WIDTH, WINDOW_HEIGHT],
+                image_extent: window.inner_size().into(),
                 image_usage: ImageUsage::COLOR_ATTACHMENT,
                 composite_alpha: surface_capabilities
                     .supported_composite_alpha
@@ -451,7 +446,7 @@ pub fn main()
                     viewports: [Viewport
                     {
                         offset: [0.0, 0.0],
-                        extent: [WINDOW_WIDTH as f32, WINDOW_HEIGHT as f32],
+                        extent: window.inner_size().into(),
                         depth_range: 0.0..=1.0
                     }]
                     .into_iter()
