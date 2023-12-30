@@ -37,7 +37,6 @@ use vulkano::{
             GraphicsPipelineCreateInfo
         },
         layout::PipelineDescriptorSetLayoutCreateInfo,
-        DynamicState,
         GraphicsPipeline,
         Pipeline,
         PipelineBindPoint,
@@ -208,10 +207,12 @@ pub fn main()
 
     let memory_allocator =
         Arc::new(StandardMemoryAllocator::new_default(device.clone()));
-    let descriptor_set_allocator =
-        StandardDescriptorSetAllocator::new(device.clone(), Default::default());
-    let command_buffer_allocator =
-        StandardCommandBufferAllocator::new(device.clone(), Default::default());
+    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(
+        device.clone(), Default::default()
+    );
+    let command_buffer_allocator = StandardCommandBufferAllocator::new(
+        device.clone(), Default::default()
+    );
         
     #[derive(BufferContents, Vertex)]
     #[repr(C)]
@@ -463,17 +464,12 @@ pub fn main()
                         subpass.num_color_attachments(),
                         ColorBlendAttachmentState::default()
                     )),
-                dynamic_state: [DynamicState::Viewport].into_iter().collect(),
                 subpass: Some(subpass.into()),
                 ..GraphicsPipelineCreateInfo::layout(layout)
             }
         )
         .unwrap()
     };
-
-    let command_buffer_allocator = StandardCommandBufferAllocator::new(
-        device.clone(), Default::default()
-    );
 
     let mut fences: Vec<Option<FenceSignalFuture<_>>> =
         (0..framebuffers.len()).map(|_| None).collect();
