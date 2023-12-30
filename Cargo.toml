@@ -10,8 +10,11 @@ name = "voxel_engine"
 path = "src/lib.rs"
 
 [[example]]
-name = "triangle"
-path = "src/triangle.rs"
+name = "tri"
+path = "src/triangle_with_direct_vertex_manipulation.rs"
+[[example]]
+name = "tri_cs"
+path = "src/triangle_with_compute_shader.rs"
 
 [dependencies]
 vulkano = "0.34.1"

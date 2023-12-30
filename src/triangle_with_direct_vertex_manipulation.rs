@@ -3,7 +3,7 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder
 };
-use std::sync::Arc;
+use std::{time::SystemTime, sync::Arc};
 use vulkano::{
     buffer::{Buffer, BufferContents, BufferCreateInfo, BufferUsage},
     command_buffer::{
@@ -92,7 +92,8 @@ pub fn main()
         .unwrap_or_else(|err|
         {
             panic!("Could not enumerate physical devices: {:?}", err)
-        }).next().expect("No physical device!");
+        })
+        .next().expect("No physical device!");
     let queue_family_index = 0;  // will be set dynamically as I learn the API
 
     println!("Physical device:\n{} (type: {:?})\n",
@@ -112,7 +113,8 @@ pub fn main()
             }],
             ..Default::default()
         }
-    ).unwrap();
+    )
+    .unwrap();
 
     let queue = queues.next().unwrap();
 
@@ -146,7 +148,8 @@ pub fn main()
                     .unwrap(),
                 ..Default::default()
             },
-        ).unwrap()
+        )
+        .unwrap()
     };
 
     let memory_allocator = Arc::new(
@@ -154,42 +157,27 @@ pub fn main()
     );
     
     
-    #[derive(BufferContents, Vertex)]
+    #[derive(BufferContents, Clone, Vertex)]
     #[repr(C)]
     struct Vertex
     {
         #[format(R32G32_SFLOAT)]
         position: [f32; 2]
     }
-    let vertices = [
+    let mut verticies = [
         Vertex
         {
-            position: [-0.5, -0.25]
+            position: [0.0, -0.5]
         },
         Vertex
         {
-            position: [0.0, 0.5]
+            position: [0.5, 0.5]
         },
         Vertex
         {
-            position: [0.25, -0.1]
+            position: [-0.5, 0.5]
         }
     ];
-    let vertex_buffer = Buffer::from_iter(
-        memory_allocator,
-        BufferCreateInfo
-        {
-            usage: BufferUsage::VERTEX_BUFFER,
-            ..Default::default()
-        },
-        AllocationCreateInfo
-        {
-            memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
-                | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
-            ..Default::default()
-        },
-        vertices
-    ).unwrap();
 
     mod vs
     {
@@ -199,11 +187,19 @@ pub fn main()
             src: r"
                 #version 450
 
+                vec3 colors[3] = vec3[](
+                    vec3(1.0, 0.0, 0.0),
+                    vec3(0.0, 1.0, 0.0),
+                    vec3(0.0, 0.0, 1.0)
+                );
+
                 layout (location = 0) in vec2 position;
+                layout (location = 0) out vec3 f_color;
 
                 void main()
                 {
                     gl_Position = vec4(position, 0.0, 1.0);
+                    f_color = colors[gl_VertexIndex];
                 }
             "
         }
@@ -216,11 +212,12 @@ pub fn main()
             src: r"
                 #version 450
 
-                layout(location = 0) out vec4 f_color;
+                layout (location = 0) in vec3 f_color;
+                layout (location = 0) out vec4 o_color;
 
                 void main()
                 {
-                    f_color = vec4(1.0, 0.0, 0.0, 1.0);
+                    o_color = vec4(f_color, 1.0);
                 }
             "
         }
@@ -242,9 +239,10 @@ pub fn main()
             color: [color],
             depth_stencil: {}
         }
-    ).unwrap();
+    )
+    .unwrap();
 
-    let pipeline = {
+    let graphics_pipeline = {
         let vs = vs::load(device.clone())
             .unwrap()
             .entry_point("main")
@@ -267,7 +265,8 @@ pub fn main()
             PipelineDescriptorSetLayoutCreateInfo::from_stages(&stages)
                 .into_pipeline_layout_create_info(device.clone())
                 .unwrap()
-        ).unwrap();
+        )
+        .unwrap();
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
@@ -292,7 +291,8 @@ pub fn main()
                 subpass: Some(subpass.into()),
                 ..GraphicsPipelineCreateInfo::layout(layout)
             }
-        ).unwrap()
+        )
+        .unwrap()
     };
 
     let mut viewport = Viewport
@@ -314,6 +314,8 @@ pub fn main()
 
     let mut previous_frame_end = Some(sync::now(device.clone()).boxed());
 
+    let start_time = SystemTime::now();
+    let mut last_frame_time = start_time;
     event_loop.run(move |event, _, control_flow|
     {
         match event
@@ -343,6 +345,17 @@ pub fn main()
                     return;
                 }
 
+                let _now = SystemTime::now();
+                let _time = _now
+                    .duration_since(start_time)
+                    .unwrap()
+                    .as_secs_f32();
+                let _dt = _now
+                    .duration_since(last_frame_time)
+                    .unwrap()
+                    .as_secs_f32();
+                last_frame_time = _now;
+
                 previous_frame_end.as_mut().unwrap().cleanup_finished();
 
                 if recreate_swapchain
@@ -365,6 +378,23 @@ pub fn main()
 
                     recreate_swapchain = false;
                 }
+            
+                let vertex_buffer = Buffer::from_iter(
+                    memory_allocator.clone(),
+                    BufferCreateInfo
+                    {
+                        usage: BufferUsage::VERTEX_BUFFER,
+                        ..Default::default()
+                    },
+                    AllocationCreateInfo
+                    {
+                        memory_type_filter: MemoryTypeFilter::PREFER_DEVICE
+                            | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                        ..Default::default()
+                    },
+                    verticies.clone()
+                )
+                .unwrap();
 
                 let (image_index, suboptimal, acquire_future) =
                     match acquire_next_image(swapchain.clone(), None)
@@ -388,7 +418,8 @@ pub fn main()
                     &command_buffer_allocator,
                     queue.queue_family_index(),
                     CommandBufferUsage::OneTimeSubmit
-                ).unwrap();
+                )
+                .unwrap();
 
                 builder
                     .begin_render_pass(
@@ -410,7 +441,7 @@ pub fn main()
                     .unwrap()
                     .set_viewport(0, [viewport.clone()].into_iter().collect())
                     .unwrap()
-                    .bind_pipeline_graphics(pipeline.clone())
+                    .bind_pipeline_graphics(graphics_pipeline.clone())
                     .unwrap()
                     .bind_vertex_buffers(0, vertex_buffer.clone())
                     .unwrap()
@@ -434,6 +465,11 @@ pub fn main()
                         )
                     )
                     .then_signal_fence_and_flush();
+
+                verticies.iter_mut().for_each(|vertex|
+                {
+                    vertex.position[1] -= (_time % 255.0).sin() * _dt / 10.0;
+                });
 
                 match future.map_err(Validated::unwrap)
                 {
@@ -481,6 +517,7 @@ fn window_size_dependent_setup(
                     attachments: vec![view],
                     ..Default::default()
                 }
-            ).unwrap()
+            )
+            .unwrap()
         }).collect::<Vec<_>>()
 }
