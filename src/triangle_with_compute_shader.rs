@@ -324,7 +324,8 @@ pub fn main()
 
                 void main()
                 {
-                    verticies[gl_GlobalInvocationID.x].position.y += 0.1;
+                    verticies[gl_GlobalInvocationID.x].position.y -=
+                        coefficient * dt / 10.0;
                 }
             "
         }
@@ -511,7 +512,7 @@ pub fn main()
 
                 let push_constants = cs::PushConstants
                 {
-                    coefficient: _time,
+                    coefficient: (_time % 255.0).sin(),
                     dt: _dt
                 };
 
@@ -545,7 +546,6 @@ pub fn main()
                     CommandBufferUsage::OneTimeSubmit
                 )
                 .unwrap();
-
                 builder
                     .push_constants(
                         compute_pipeline.layout().clone(),
@@ -562,7 +562,7 @@ pub fn main()
                         descriptor_set.clone()
                     )
                     .unwrap()
-                    .dispatch([VERTEX_COUNT as u32 / 128, 1, 1])
+                    .dispatch([VERTEX_COUNT as u32, 1, 1])
                     .unwrap()
                     .begin_render_pass(
                         RenderPassBeginInfo
